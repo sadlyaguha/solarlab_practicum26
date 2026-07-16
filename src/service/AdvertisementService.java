@@ -1,13 +1,17 @@
 package service;
 
 import entity.Advertisement;
+import entity.AdStatus;
 import entity.User;
+import facade.ApplicationFacade.*;
 import repository.AdvertisementRepository;
 import repository.UserRepository;
 import request.CreateAdRequest;
 import request.EditAdRequest;
 import request.ChangeAdStatusRequest;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Optional;
 
@@ -20,198 +24,158 @@ public class AdvertisementService {
         this.userRepository = userRepository;
     }
 
-    public Advertisement createAd(CreateAdRequest request) {
+    public boolean isActive(Advertisement ad) {
+        return ad.getStatus() == AdStatus.ACTIVE;
+    }
+
+    public boolean isBlockedByAdmin(Advertisement ad) {
+        return ad.getStatus() == AdStatus.BLOCKED_BY_ADMIN;
+    }
+
+    public String getStatusText(Advertisement ad) {
+        switch (ad.getStatus()) {
+            case ACTIVE: return "Активно";
+            case INACTIVE: return "Неактивно";
+            case BLOCKED_BY_ADMIN: return "Заблокировано администратором";
+            default: return "Неизвестно";
+        }
+    }
+
+    public String getFormattedDate(Advertisement ad) {
+        return ad.getCreatedAt().format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"));
+    }
+
+    public String getPriceDisplay(Advertisement ad) {
+        return (ad.getPrice() == null || ad.getPrice().isEmpty()) ? "Договорная" : ad.getPrice() + " руб.";
+    }
+
+    public String preparePrice(String price) {
+        return (price == null || price.isEmpty()) ? null : price;
+    }
+
+    public Advertisement createAd(CreateAdRequest request) throws UserNotFoundException, BlockedException {
         Optional<User> userOpt = userRepository.findById(request.getAuthorId());
         if (userOpt.isEmpty()) {
-            System.out.println("Пользователь не найден.");
-            return null;
+            throw new UserNotFoundException("Пользователь не найден.");
         }
 
         User user = userOpt.get();
         if (user.isBlocked()) {
-            System.out.println("Заблокированные пользователи не могут создавать объявления.");
-            return null;
+            throw new BlockedException("Заблокированные пользователи не могут создавать объявления.");
         }
 
         long id = adRepository.getNextId();
+        String price = preparePrice(request.getPrice());
         Advertisement ad = new Advertisement(id, request.getAuthorId(), request.getCategory(),
-                                              request.getTitle(), request.getDescription(),
-                                              request.getPrice());
+                request.getTitle(), request.getDescription(), price);
         adRepository.save(ad);
-        System.out.println("Объявление создано. ID: " + ad.getId());
         return ad;
     }
 
-    public boolean editAd(EditAdRequest request) {
+    public void editAd(EditAdRequest request) throws AdNotFoundException, AccessDeniedException, BlockedException {
         Optional<Advertisement> adOpt = adRepository.findById(request.getAdId());
         if (adOpt.isEmpty()) {
-            System.out.println("Объявление не найдено.");
-            return false;
+            throw new AdNotFoundException("Объявление не найдено.");
         }
 
         Advertisement ad = adOpt.get();
         if (ad.getAuthorId() != request.getUserId()) {
-            System.out.println("Вы можете редактировать только свои объявления.");
-            return false;
+            throw new AccessDeniedException("Вы можете редактировать только свои объявления.");
         }
 
         Optional<User> userOpt = userRepository.findById(request.getUserId());
         if (userOpt.isPresent() && userOpt.get().isBlocked()) {
-            System.out.println("Заблокированные пользователи не могут редактировать объявления.");
-            return false;
+            throw new BlockedException("Заблокированные пользователи не могут редактировать объявления.");
         }
 
         ad.setCategory(request.getCategory());
         ad.setTitle(request.getTitle());
         ad.setDescription(request.getDescription());
-        ad.setPrice(request.getPrice());
+        ad.setPrice(preparePrice(request.getPrice()));
         adRepository.save(ad);
-        System.out.println("Объявление обновлено.");
-        return true;
     }
 
-    public boolean deactivateAd(ChangeAdStatusRequest request) {
+    public void deactivateAd(ChangeAdStatusRequest request) throws AdNotFoundException, AccessDeniedException, BlockedException, ValidationException {
         Optional<Advertisement> adOpt = adRepository.findById(request.getAdId());
         if (adOpt.isEmpty()) {
-            System.out.println("Объявление не найдено.");
-            return false;
+            throw new AdNotFoundException("Объявление не найдено.");
         }
 
         Advertisement ad = adOpt.get();
         if (ad.getAuthorId() != request.getUserId()) {
-            System.out.println("Вы можете деактивировать только свои объявления.");
-            return false;
+            throw new AccessDeniedException("Вы можете деактивировать только свои объявления.");
         }
 
         Optional<User> userOpt = userRepository.findById(request.getUserId());
         if (userOpt.isPresent() && userOpt.get().isBlocked()) {
-            System.out.println("Заблокированные пользователи не могут деактивировать объявления.");
-            return false;
+            throw new BlockedException("Заблокированные пользователи не могут деактивировать объявления.");
         }
 
-        if (ad.isBlockedByAdmin()) {
-            System.out.println("Это объявление заблокировано администратором и не может быть активировано.");
-            return false;
+        if (isBlockedByAdmin(ad)) {
+            throw new ValidationException("Это объявление заблокировано администратором и не может быть активировано.");
         }
 
-        ad.setStatus(Advertisement.Status.INACTIVE);
+        ad.setStatus(AdStatus.INACTIVE);
         adRepository.save(ad);
-        System.out.println("Объявление деактивировано.");
-        return true;
     }
 
-    public boolean activateAd(ChangeAdStatusRequest request) {
+    public void activateAd(ChangeAdStatusRequest request) throws AdNotFoundException, AccessDeniedException, BlockedException, ValidationException {
         Optional<Advertisement> adOpt = adRepository.findById(request.getAdId());
         if (adOpt.isEmpty()) {
-            System.out.println("Объявление не найдено.");
-            return false;
+            throw new AdNotFoundException("Объявление не найдено.");
         }
 
         Advertisement ad = adOpt.get();
         if (ad.getAuthorId() != request.getUserId()) {
-            System.out.println("Вы можете активировать только свои объявления.");
-            return false;
+            throw new AccessDeniedException("Вы можете активировать только свои объявления.");
         }
 
         Optional<User> userOpt = userRepository.findById(request.getUserId());
         if (userOpt.isPresent() && userOpt.get().isBlocked()) {
-            System.out.println("Заблокированные пользователи не могут активировать объявления.");
-            return false;
+            throw new BlockedException("Заблокированные пользователи не могут активировать объявления.");
         }
 
-        if (ad.isBlockedByAdmin()) {
-            System.out.println("Это объявление заблокировано администратором и не может быть активировано.");
-            return false;
+        if (isBlockedByAdmin(ad)) {
+            throw new ValidationException("Это объявление заблокировано администратором и не может быть активировано.");
         }
 
-        ad.setStatus(Advertisement.Status.ACTIVE);
+        ad.setStatus(AdStatus.ACTIVE);
         adRepository.save(ad);
-        System.out.println("Объявление активировано.");
-        return true;
     }
 
-    public boolean deactivateAdByAdmin(long adId, long adminId) {
+    public void deactivateAdByAdmin(long adId, long adminId) throws AccessDeniedException, AdNotFoundException {
         Optional<User> adminOpt = userRepository.findById(adminId);
-        if (adminOpt.isEmpty() || !adminOpt.get().isAdmin()) {
-            System.out.println("Только администратор может деактивировать объявления.");
-            return false;
+        if (adminOpt.isEmpty() || adminOpt.get().getRole() != entity.UserRole.ADMIN) {
+            throw new AccessDeniedException("Только администратор может деактивировать объявления.");
         }
 
         Optional<Advertisement> adOpt = adRepository.findById(adId);
         if (adOpt.isEmpty()) {
-            System.out.println("Объявление не найдено.");
-            return false;
+            throw new AdNotFoundException("Объявление не найдено.");
         }
 
         Advertisement ad = adOpt.get();
-        ad.setStatus(Advertisement.Status.BLOCKED_BY_ADMIN);
+        ad.setStatus(AdStatus.BLOCKED_BY_ADMIN);
         adRepository.save(ad);
-        System.out.println("Объявление #" + adId + " заблокировано администратором.");
-        return true;
     }
 
-    public void viewActiveAds() {
-        List<Advertisement> activeAds = adRepository.findActiveAds();
-        if (activeAds.isEmpty()) {
-            System.out.println("Нет активных объявлений.");
-            return;
-        }
-        System.out.println("\n=== Активные объявления ===");
-        activeAds.forEach(ad -> {
-            System.out.println(ad);
-            System.out.println("---");
-        });
+    public List<Advertisement> getActiveAds() {
+        return adRepository.findActiveAds();
     }
 
-    public void viewMyAds(long userId) {
-        List<Advertisement> myAds = adRepository.findByAuthorId(userId);
-        if (myAds.isEmpty()) {
-            System.out.println("У вас нет объявлений.");
-            return;
-        }
-        System.out.println("\n=== Мои объявления ===");
-        myAds.forEach(ad -> {
-            System.out.println(ad);
-            System.out.println("---");
-        });
+    public List<Advertisement> getMyAds(long userId) {
+        return adRepository.findByAuthorId(userId);
     }
 
-    public void viewAllAds() {
-        List<Advertisement> allAds = adRepository.findAll();
-        if (allAds.isEmpty()) {
-            System.out.println("Нет объявлений в системе.");
-            return;
-        }
-        System.out.println("\n=== Все объявления ===");
-        allAds.forEach(ad -> {
-            System.out.println(ad);
-            System.out.println("---");
-        });
+    public List<Advertisement> getAllAds() {
+        return adRepository.findAll();
     }
 
-    public void searchByCategory(String category) {
-        List<Advertisement> found = adRepository.findByCategory(category);
-        if (found.isEmpty()) {
-            System.out.println("Объявления в категории '" + category + "' не найдены.");
-            return;
-        }
-        System.out.println("\n=== Результаты поиска по категории: " + category + " ===");
-        found.forEach(ad -> {
-            System.out.println(ad);
-            System.out.println("---");
-        });
+    public List<Advertisement> searchByCategory(String category) {
+        return adRepository.findByCategory(category);
     }
 
-    public void searchByTitle(String keyword) {
-        List<Advertisement> found = adRepository.findByTitleContaining(keyword);
-        if (found.isEmpty()) {
-            System.out.println("Объявления по запросу '" + keyword + "' не найдены.");
-            return;
-        }
-        System.out.println("\n=== Результаты поиска по названию: " + keyword + " ===");
-        found.forEach(ad -> {
-            System.out.println(ad);
-            System.out.println("---");
-        });
+    public List<Advertisement> searchByTitle(String keyword) {
+        return adRepository.findByTitleContaining(keyword);
     }
 }

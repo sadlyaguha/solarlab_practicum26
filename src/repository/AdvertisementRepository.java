@@ -18,6 +18,7 @@ public class AdvertisementRepository implements Repository<Advertisement, Long> 
 
     @Override
     public void save(Advertisement ad) {
+        advertisements = loadFromFile();
         Optional<Advertisement> existing = findById(ad.getId());
         if (existing.isPresent()) {
             advertisements.remove(existing.get());
@@ -38,6 +39,7 @@ public class AdvertisementRepository implements Repository<Advertisement, Long> 
 
     @Override
     public void deleteById(Long id) {
+        advertisements = loadFromFile();
         advertisements.removeIf(ad -> ad.getId().equals(id));
         saveToFile();
     }
@@ -50,20 +52,20 @@ public class AdvertisementRepository implements Repository<Advertisement, Long> 
 
     public List<Advertisement> findActiveAds() {
         return advertisements.stream()
-                .filter(Advertisement::isActive)
+                .filter(ad -> ad.getStatus() == entity.AdStatus.ACTIVE)
                 .collect(Collectors.toList());
     }
 
     public List<Advertisement> findByCategory(String category) {
         return advertisements.stream()
-                .filter(Advertisement::isActive)
+                .filter(ad -> ad.getStatus() == entity.AdStatus.ACTIVE)
                 .filter(ad -> ad.getCategory().equalsIgnoreCase(category))
                 .collect(Collectors.toList());
     }
 
     public List<Advertisement> findByTitleContaining(String keyword) {
         return advertisements.stream()
-                .filter(Advertisement::isActive)
+                .filter(ad -> ad.getStatus() == entity.AdStatus.ACTIVE)
                 .filter(ad -> ad.getTitle().toLowerCase().contains(keyword.toLowerCase()))
                 .collect(Collectors.toList());
     }
@@ -76,7 +78,7 @@ public class AdvertisementRepository implements Repository<Advertisement, Long> 
         try (ObjectOutputStream oos = new ObjectOutputStream(new FileOutputStream(FILE_NAME))) {
             oos.writeObject(advertisements);
         } catch (IOException e) {
-            System.out.println("Ошибка сохранения объявлений: " + e.getMessage());
+            throw new RuntimeException("Ошибка сохранения объявлений: " + e.getMessage(), e);
         }
     }
 
@@ -89,8 +91,7 @@ public class AdvertisementRepository implements Repository<Advertisement, Long> 
         try (ObjectInputStream ois = new ObjectInputStream(new FileInputStream(FILE_NAME))) {
             return (List<Advertisement>) ois.readObject();
         } catch (IOException | ClassNotFoundException e) {
-            System.out.println("Ошибка загрузки объявлений: " + e.getMessage());
-            return new ArrayList<>();
+            throw new RuntimeException("Ошибка загрузки объявлений: " + e.getMessage(), e);
         }
     }
 }

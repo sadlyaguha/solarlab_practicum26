@@ -1,6 +1,8 @@
 package service;
 
 import entity.User;
+import entity.UserRole;
+import facade.ApplicationFacade.*;
 import repository.UserRepository;
 import request.LoginRequest;
 import request.RegisterRequest;
@@ -21,53 +23,44 @@ public class UserService {
     private void createDefaultAdmin() {
         if (!userRepository.existsByLogin("admin")) {
             long id = userRepository.getNextId();
-            User admin = new User(id, "admin", "Администратор", "admin@system.ru", "admin123", User.Role.ADMIN);
+            User admin = new User(id, "admin", "Администратор", "admin@system.ru", "admin123", UserRole.ADMIN);
             userRepository.save(admin);
-            System.out.println("Создан администратор по умолчанию (логин: admin, пароль: admin123)");
         }
     }
 
-    public Optional<User> login(LoginRequest request) {
+    public User login(LoginRequest request) throws AuthenticationException, BlockedException {
         Optional<User> userOpt = userRepository.findByLogin(request.getLogin());
 
         if (userOpt.isEmpty()) {
-            System.out.println("Неверный логин или пароль.");
-            return Optional.empty();
+            throw new AuthenticationException("Неверный логин или пароль.");
         }
 
         User user = userOpt.get();
         if (!user.getPassword().equals(request.getPassword())) {
-            System.out.println("Неверный логин или пароль.");
-            return Optional.empty();
+            throw new AuthenticationException("Неверный логин или пароль.");
         }
 
         if (user.isBlocked()) {
-            System.out.println("Ваш аккаунт заблокирован.");
-            return Optional.empty();
+            throw new BlockedException("Ваш аккаунт заблокирован.");
         }
 
         currentUser = user;
-        System.out.println("Добро пожаловать, " + user.getName());
-        return Optional.of(user);
+        return user;
     }
 
-    public boolean register(RegisterRequest request) {
+    public void register(RegisterRequest request) throws ValidationException {
         if (userRepository.existsByLogin(request.getLogin())) {
-            System.out.println("Пользователь с таким логином уже существует.");
-            return false;
+            throw new ValidationException("Пользователь с таким логином уже существует.");
         }
 
         long id = userRepository.getNextId();
         User newUser = new User(id, request.getLogin(), request.getName(),
-                               request.getEmail(), request.getPassword(), User.Role.USER);
+                request.getEmail(), request.getPassword(), UserRole.USER);
         userRepository.save(newUser);
-        System.out.println("Регистрация успешна. Теперь вы можете войти.");
-        return true;
     }
 
     public void logout() {
         currentUser = null;
-        System.out.println("Вы вышли из системы.");
     }
 
     public User getCurrentUser() {
@@ -78,59 +71,52 @@ public class UserService {
         return currentUser != null;
     }
 
-    public boolean blockUser(BlockUserRequest request) {
+    public boolean isAdmin(User user) {
+        return user.getRole() == UserRole.ADMIN;
+    }
+
+    public void blockUser(BlockUserRequest request) throws AccessDeniedException, UserNotFoundException, ValidationException {
         Optional<User> adminOpt = userRepository.findById(request.getAdminId());
-        if (adminOpt.isEmpty() || !adminOpt.get().isAdmin()) {
-            System.out.println("Только администратор может блокировать пользователей.");
-            return false;
+        if (adminOpt.isEmpty() || !isAdmin(adminOpt.get())) {
+            throw new AccessDeniedException("Только администратор может блокировать пользователей.");
         }
 
         Optional<User> userOpt = userRepository.findByLogin(request.getLoginToBlock());
         if (userOpt.isEmpty()) {
-            System.out.println("Пользователь не найден.");
-            return false;
+            throw new UserNotFoundException("Пользователь не найден.");
         }
 
         User userToBlock = userOpt.get();
-        if (userToBlock.isAdmin()) {
-            System.out.println("Нельзя заблокировать другого администратора.");
-            return false;
+        if (isAdmin(userToBlock)) {
+            throw new AccessDeniedException("Нельзя заблокировать другого администратора.");
         }
 
         if (userToBlock.isBlocked()) {
-            System.out.println("Пользователь уже заблокирован.");
-            return false;
+            throw new ValidationException("Пользователь уже заблокирован.");
         }
 
         userToBlock.setBlocked(true);
         userRepository.save(userToBlock);
-        System.out.println("Пользователь " + request.getLoginToBlock() + " заблокирован.");
-        return true;
     }
 
-    public boolean unblockUser(String login, long adminId) {
+    public void unblockUser(String login, long adminId) throws AccessDeniedException, UserNotFoundException, ValidationException {
         Optional<User> adminOpt = userRepository.findById(adminId);
-        if (adminOpt.isEmpty() || !adminOpt.get().isAdmin()) {
-            System.out.println("Только администратор может разблокировать пользователей.");
-            return false;
+        if (adminOpt.isEmpty() || !isAdmin(adminOpt.get())) {
+            throw new AccessDeniedException("Только администратор может разблокировать пользователей.");
         }
 
         Optional<User> userOpt = userRepository.findByLogin(login);
         if (userOpt.isEmpty()) {
-            System.out.println("Пользователь не найден.");
-            return false;
+            throw new UserNotFoundException("Пользователь не найден.");
         }
 
         User userToUnblock = userOpt.get();
         if (!userToUnblock.isBlocked()) {
-            System.out.println("Пользователь не заблокирован.");
-            return false;
+            throw new ValidationException("Пользователь не заблокирован.");
         }
 
         userToUnblock.setBlocked(false);
         userRepository.save(userToUnblock);
-        System.out.println("Пользователь " + login + " разблокирован.");
-        return true;
     }
 
     public Optional<User> findByLogin(String login) {

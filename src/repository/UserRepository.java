@@ -17,6 +17,7 @@ public class UserRepository implements Repository<User, Long> {
 
     @Override
     public void save(User user) {
+        users = loadFromFile();
         Optional<User> existing = findById(user.getId());
         if (existing.isPresent()) {
             users.remove(existing.get());
@@ -37,6 +38,7 @@ public class UserRepository implements Repository<User, Long> {
 
     @Override
     public void deleteById(Long id) {
+        users = loadFromFile();
         users.removeIf(u -> u.getId().equals(id));
         saveToFile();
     }
@@ -57,7 +59,7 @@ public class UserRepository implements Repository<User, Long> {
         try (ObjectOutputStream oos = new ObjectOutputStream(new FileOutputStream(FILE_NAME))) {
             oos.writeObject(users);
         } catch (IOException e) {
-            System.out.println("Ошибка сохранения пользователей: " + e.getMessage());
+            throw new RuntimeException("Ошибка сохранения пользователей: " + e.getMessage(), e);
         }
     }
 
@@ -70,8 +72,7 @@ public class UserRepository implements Repository<User, Long> {
         try (ObjectInputStream ois = new ObjectInputStream(new FileInputStream(FILE_NAME))) {
             return (List<User>) ois.readObject();
         } catch (IOException | ClassNotFoundException e) {
-            System.out.println("Ошибка загрузки пользователей: " + e.getMessage());
-            return new ArrayList<>();
+            throw new RuntimeException("Ошибка загрузки пользователей: " + e.getMessage(), e);
         }
     }
 }
